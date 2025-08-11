@@ -1,63 +1,288 @@
 import React from 'react';
 import { FaceLivenessDetector } from '@aws-amplify/ui-react-liveness';
 import { Loader, ThemeProvider } from '@aws-amplify/ui-react';
+import { 
+  analyzeFaceDetectionResults, 
+  getFaceQualityScore, 
+  base64ToDataUrl,
+  extractFaceRegion,
+  createFaceDetectionCanvas
+} from '../utils/faceDetectionUtils';
+
+// Interface for face detection data
+interface BoundingBox {
+  Height: number;
+  Left: number;
+  Top: number;
+  Width: number;
+}
+
+interface AuditImage {
+  BoundingBox: BoundingBox;
+  Bytes?: string; // Base64-encoded image
+  S3Object?: {
+    Bucket: string;
+    Name: string;
+    Version: string;
+  };
+}
+
+interface Challenge {
+  Type: string;
+  Version: string;
+}
+
+interface LivenessResults {
+  success: boolean;
+  status: string;
+  confidence: number;
+  isLive: boolean;
+  sessionId: string;
+  auditImages?: AuditImage[];
+  referenceImage?: AuditImage;
+  challenge?: Challenge;
+  error?: string;
+}
 
 export function LivenessQuickStartReact() {
   const [loading, setLoading] = React.useState<boolean>(true);
+  const [error, setError] = React.useState<string | null>(null);
   const [createLivenessApiData, setCreateLivenessApiData] = React.useState<{
     sessionId: string;
   } | null>(null);
+  const [livenessResults, setLivenessResults] = React.useState<LivenessResults | null>(null);
+  const [faceAnalysis, setFaceAnalysis] = React.useState<any>(null);
 
   const fetchCreateLiveness = async () => {
     /*
-     * This should be replaced with a real call to your own backend API
+     * Call the real backend API to create a Face Liveness session
      */
-    await new Promise((r) => setTimeout(r, 2000));
-    const mockResponse = { sessionId: 'mockSessionId' };
-    const data = mockResponse;
-    setCreateLivenessApiData(data);
-    setLoading(false);
+    try {
+      const response = await fetch('http://localhost:5000/api/create-liveness-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      
+      const data = await response.json();
+      console.log('Data from create-liveness-session:', data);
+
+      if (data.success) {
+        console.log('Session created successfully:', data.sessionId);
+        setCreateLivenessApiData({ sessionId: data.sessionId });
+        setLoading(false);
+      } else {
+        throw new Error(data.error || 'Failed to create session');
+      }
+    } catch (error) {
+      console.error('Error creating liveness session:', error);
+      setLoading(false);
+      setError('Failed to create liveness session. Please try again.');
+    }
   };
 
   React.useEffect(() => {
+    // Reset retry count when component mounts
+    retryCount.current = 0;
     fetchCreateLiveness();
   }, []);
 
   const handleAnalysisComplete: () => Promise<void> = async () => {
     /*
-     * This should be replaced with a real call to your own backend API
+     * Call the real backend API to get Face Liveness session results
      */
     if (createLivenessApiData?.sessionId) {
-      const response = await fetch(
-        `/api/get?sessionId=${createLivenessApiData.sessionId}`
-      );
-      const data = await response.json();
+      try {
+        const response = await fetch(
+          `http://localhost:5000/api/get-liveness-results?sessionId=${createLivenessApiData.sessionId}`
+        );
+        const data: LivenessResults = await response.json();
 
-      /*
-       * Note: The isLive flag is not returned from the GetFaceLivenessSession API
-       * This should be returned from your backend based on the score that you
-       * get in response. Based on the return value of your API you can determine what to render next.
-       * Any next steps from an authorization perspective should happen in your backend and you should not rely
-       * on this value for any auth related decisions.
-       */
-      if (data.isLive) {
-        console.log('User is live');
-      } else {
-        console.log('User is not live');
+        if (data.success) {
+          // Store the complete results for face detection processing
+          setLivenessResults(data);
+
+          // Analyze face detection results
+          const analysis = analyzeFaceDetectionResults(
+            data.referenceImage || null, 
+            data.auditImages || []
+          );
+          setFaceAnalysis(analysis);
+
+          /*
+           * Handle the liveness results based on your business logic
+           */
+          console.log('=== LIVENESS SESSION RESULTS ===');
+          console.log('Session ID:', data.sessionId);
+          console.log('Status:', data.status);
+          console.log('Confidence:', data.confidence);
+          console.log('Is Live:', data.isLive);
+          
+          // Process face detection data
+          if (data.referenceImage) {
+            console.log('=== REFERENCE IMAGE (Face Detection) ===');
+            console.log('Face Bounding Box:', data.referenceImage.BoundingBox);
+            console.log('Face Quality Score:', getFaceQualityScore(data.referenceImage.BoundingBox));
+            console.log('Reference Image Available:', !!data.referenceImage.Bytes || !!data.referenceImage.S3Object);
+            
+            // You can use the reference image for face comparison or search
+            if (data.referenceImage.Bytes) {
+              console.log('Reference image as Base64 available for face detection');
+              // Process the base64 image for face detection/comparison
+              processReferenceImageForFaceDetection(data.referenceImage);
+            } else if (data.referenceImage.S3Object) {
+              console.log('Reference image stored in S3:', data.referenceImage.S3Object);
+              // Download from S3 for face detection if needed
+            }
+          }
+
+          // Process audit images for additional face detection
+          if (data.auditImages && data.auditImages.length > 0) {
+            console.log('=== AUDIT IMAGES (Face Detection) ===');
+            console.log(`Number of audit images: ${data.auditImages.length}`);
+            
+            data.auditImages.forEach((auditImage, index) => {
+              const qualityScore = getFaceQualityScore(auditImage.BoundingBox);
+              console.log(`Audit Image ${index + 1}:`, {
+                boundingBox: auditImage.BoundingBox,
+                qualityScore: qualityScore,
+                hasBytes: !!auditImage.Bytes,
+                s3Object: auditImage.S3Object
+              });
+              
+              // Process each audit image for face detection
+              if (auditImage.Bytes) {
+                processAuditImageForFaceDetection(auditImage, index);
+              }
+            });
+          }
+
+          // Challenge information
+          if (data.challenge) {
+            console.log('=== CHALLENGE INFO ===');
+            console.log('Challenge Type:', data.challenge.Type);
+            console.log('Challenge Version:', data.challenge.Version);
+          }
+
+          // Log analysis results
+          console.log('=== FACE DETECTION ANALYSIS ===');
+          console.log('Analysis:', analysis);
+          
+          if (data.isLive) {
+            console.log('✅ User is live - Authentication successful');
+            console.log('🔍 Face detection data available for further processing');
+            // Proceed with authenticated user flow
+            // You can now use the face detection data for:
+            // - Face comparison with stored user images
+            // - Face search in your database
+            // - Additional security checks
+          } else {
+            console.log('❌ User is not live - Authentication failed');
+            // Handle failed authentication
+          }
+        } else {
+          console.error('Error getting session results:', data.error);
+          setError('Failed to get liveness results. Please try again.');
+        }
+      } catch (error) {
+        console.error('Error fetching session results:', error);
+        setError('Error processing liveness results. Please try again.');
       }
     }
   };
 
-  // Use a ref to track if we're currently handling an error
+  // Helper function to process reference image for face detection
+  const processReferenceImageForFaceDetection = (referenceImage: AuditImage) => {
+    console.log('Processing reference image for face detection...');
+    
+    // Extract face bounding box coordinates
+    const { Height, Left, Top, Width } = referenceImage.BoundingBox;
+    console.log(`Face detected at: Left=${Left}, Top=${Top}, Width=${Width}, Height=${Height}`);
+    
+    // The bounding box coordinates are normalized (0-1 range)
+    // You can use these to crop the face from the image or draw a rectangle
+    
+    if (referenceImage.Bytes) {
+      // Create data URL for the image
+      const imageDataUrl = base64ToDataUrl(referenceImage.Bytes);
+      console.log('Reference image ready for face comparison/search');
+      
+      // Here you could:
+      // 1. Send the image to your face comparison API
+      // 2. Store it for future reference
+      // 3. Use it for face search in your database
+      // 4. Display it in the UI for verification
+      
+      // Example: Extract just the face region for better processing
+      extractFaceRegion(imageDataUrl, referenceImage.BoundingBox, 0.1)
+        .then((croppedFaceUrl) => {
+          console.log('Cropped face region extracted for processing:', croppedFaceUrl.substring(0, 50) + '...');
+          // Use croppedFaceUrl for face recognition APIs
+        })
+        .catch((error) => {
+          console.error('Error extracting face region:', error);
+        });
+    }
+  };
+
+  // Helper function to process audit images for face detection
+  const processAuditImageForFaceDetection = (auditImage: AuditImage, index: number) => {
+    console.log(`Processing audit image ${index + 1} for face detection...`);
+    
+    const { Height, Left, Top, Width } = auditImage.BoundingBox;
+    console.log(`Face detected in audit image ${index + 1}: Left=${Left}, Top=${Top}, Width=${Width}, Height=${Height}`);
+    
+    if (auditImage.Bytes) {
+      const imageDataUrl = base64ToDataUrl(auditImage.Bytes);
+      console.log(`Audit image ${index + 1} ready for analysis`);
+      
+      // You can use audit images for:
+      // 1. Quality assessment
+      // 2. Multiple angle face detection
+      // 3. Fraud detection
+      // 4. Compliance and audit purposes
+      
+      // Example: Create a canvas with face detection overlay
+      createFaceDetectionCanvas(imageDataUrl, auditImage.BoundingBox, {
+        strokeColor: '#ff0000',
+        strokeWidth: 2,
+        showLabel: true,
+        labelText: `Audit ${index + 1}`
+      }).then((canvas) => {
+        console.log(`Face detection overlay created for audit image ${index + 1}, canvas size: ${canvas.width}x${canvas.height}`);
+        // You could append this canvas to the DOM or save it
+      }).catch((error) => {
+        console.error(`Error creating face detection overlay for audit image ${index + 1}:`, error);
+      });
+    }
+  };
+
+  // Use a ref to track if we're currently handling an error and retry count
   const isHandlingError = React.useRef(false);
+  const retryCount = React.useRef(0);
+  const MAX_RETRIES = 2;
 
   const handleError = async (error: any) => {
     console.error('Liveness error:', error);
 
-    // Simple infinite loop prevention
-    if (isHandlingError.current) return;
+    // Prevent infinite loop - limit retries
+    if (isHandlingError.current || retryCount.current >= MAX_RETRIES) {
+      console.error('Max retries reached or already handling error. Stopping retry attempts.');
+      setLoading(false);
+      setError('Face liveness detection failed after multiple attempts. Please refresh the page to try again.');
+      return;
+    }
+
     isHandlingError.current = true;
+    retryCount.current += 1;
     setLoading(true);
+
+    console.log(`Retry attempt ${retryCount.current}/${MAX_RETRIES}`);
+
+    // Wait a bit before retrying to avoid rapid requests
+    await new Promise(resolve => setTimeout(resolve, 1000));
 
     // Create a new session for retry - sessions are single-use
     await fetchCreateLiveness();
@@ -66,14 +291,211 @@ export function LivenessQuickStartReact() {
     isHandlingError.current = false;
   };
 
+  const retryLiveness = () => {
+    retryCount.current = 0;
+    setError(null);
+    setLivenessResults(null);
+    setFaceAnalysis(null);
+    setLoading(true);
+    fetchCreateLiveness();
+  };
+
   return (
     <ThemeProvider>
-      {loading ? (
+      {error ? (
+        <div style={{ padding: '20px', textAlign: 'center' }}>
+          <p style={{ color: 'red', marginBottom: '20px' }}>{error}</p>
+          <button onClick={retryLiveness} style={{ padding: '10px 20px', cursor: 'pointer' }}>
+            Try Again
+          </button>
+        </div>
+      ) : loading ? (
         <Loader />
+      ) : livenessResults ? (
+        // Show results after successful liveness detection
+        <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto' }}>
+          <h2>Liveness Detection Results</h2>
+          
+          <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: livenessResults.isLive ? '#d4edda' : '#f8d7da', borderRadius: '5px' }}>
+            <h3>Status: {livenessResults.isLive ? '✅ Live Person Detected' : '❌ Not Live'}</h3>
+            <p><strong>Confidence:</strong> {livenessResults.confidence}%</p>
+            <p><strong>Session Status:</strong> {livenessResults.status}</p>
+            <p><strong>Session ID:</strong> {livenessResults.sessionId}</p>
+          </div>
+
+          {/* Face Detection Analysis */}
+          {faceAnalysis && (
+            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#e8f4f8', borderRadius: '5px', border: '1px solid #17a2b8' }}>
+              <h4>🧠 Face Detection Analysis</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '15px' }}>
+                <div>
+                  <strong>Quality Score:</strong> {faceAnalysis.averageQualityScore}/100
+                  <div style={{ 
+                    width: '100%', 
+                    height: '8px', 
+                    backgroundColor: '#ddd', 
+                    borderRadius: '4px', 
+                    marginTop: '5px' 
+                  }}>
+                    <div style={{ 
+                      width: `${faceAnalysis.averageQualityScore}%`, 
+                      height: '100%', 
+                      backgroundColor: faceAnalysis.averageQualityScore > 70 ? '#28a745' : faceAnalysis.averageQualityScore > 50 ? '#ffc107' : '#dc3545',
+                      borderRadius: '4px' 
+                    }}></div>
+                  </div>
+                </div>
+                <div>
+                  <strong>Consistency:</strong> {(faceAnalysis.consistencyScore * 100).toFixed(1)}%
+                  <div style={{ 
+                    width: '100%', 
+                    height: '8px', 
+                    backgroundColor: '#ddd', 
+                    borderRadius: '4px', 
+                    marginTop: '5px' 
+                  }}>
+                    <div style={{ 
+                      width: `${faceAnalysis.consistencyScore * 100}%`, 
+                      height: '100%', 
+                      backgroundColor: faceAnalysis.consistencyScore > 0.7 ? '#28a745' : faceAnalysis.consistencyScore > 0.5 ? '#ffc107' : '#dc3545',
+                      borderRadius: '4px' 
+                    }}></div>
+                  </div>
+                </div>
+                <div>
+                  <strong>Reference Image:</strong> {faceAnalysis.hasReferenceImage ? '✅ Available' : '❌ Missing'}
+                </div>
+                <div>
+                  <strong>Audit Images:</strong> {faceAnalysis.auditImageCount} images
+                </div>
+              </div>
+              
+              {/* Recommendations */}
+              <div>
+                <strong>Recommendations:</strong>
+                <ul style={{ marginTop: '5px', marginBottom: '0', paddingLeft: '20px' }}>
+                  {faceAnalysis.recommendations.map((rec: string, index: number) => (
+                    <li key={index} style={{ 
+                      color: rec.includes('good') ? '#28a745' : rec.includes('improve') || rec.includes('should') ? '#ffc107' : '#6c757d',
+                      marginBottom: '2px'
+                    }}>
+                      {rec}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {/* Reference Image Section */}
+          {livenessResults.referenceImage && (
+            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '5px' }}>
+              <h4>📸 Reference Image (Face Detection)</h4>
+              <p><strong>Face Bounding Box:</strong></p>
+              <ul style={{ textAlign: 'left', marginLeft: '20px' }}>
+                <li>Left: {(livenessResults.referenceImage.BoundingBox.Left * 100).toFixed(2)}%</li>
+                <li>Top: {(livenessResults.referenceImage.BoundingBox.Top * 100).toFixed(2)}%</li>
+                <li>Width: {(livenessResults.referenceImage.BoundingBox.Width * 100).toFixed(2)}%</li>
+                <li>Height: {(livenessResults.referenceImage.BoundingBox.Height * 100).toFixed(2)}%</li>
+              </ul>
+              
+              {livenessResults.referenceImage.Bytes && (
+                <div style={{ marginTop: '10px' }}>
+                  <p><strong>Reference Image:</strong></p>
+                  <img 
+                    src={`data:image/jpeg;base64,${livenessResults.referenceImage.Bytes}`}
+                    alt="Reference face"
+                    style={{ 
+                      maxWidth: '300px', 
+                      maxHeight: '300px', 
+                      border: '2px solid #007bff',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <p style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                    This image can be used for face comparison and search
+                  </p>
+                </div>
+              )}
+
+              {livenessResults.referenceImage.S3Object && (
+                <div style={{ marginTop: '10px' }}>
+                  <p><strong>S3 Storage:</strong></p>
+                  <p>Bucket: {livenessResults.referenceImage.S3Object.Bucket}</p>
+                  <p>Key: {livenessResults.referenceImage.S3Object.Name}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Audit Images Section */}
+          {livenessResults.auditImages && livenessResults.auditImages.length > 0 && (
+            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '5px' }}>
+              <h4>🔍 Audit Images ({livenessResults.auditImages.length} images)</h4>
+              <p style={{ fontSize: '14px', color: '#666', marginBottom: '15px' }}>
+                Additional images captured during liveness detection for audit and quality assessment
+              </p>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
+                {livenessResults.auditImages.map((auditImage, index) => (
+                  <div key={index} style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '10px' }}>
+                    <h5>Audit Image {index + 1}</h5>
+                    <p style={{ fontSize: '12px' }}>
+                      Face Box: {(auditImage.BoundingBox.Left * 100).toFixed(1)}%, {(auditImage.BoundingBox.Top * 100).toFixed(1)}%, 
+                      {(auditImage.BoundingBox.Width * 100).toFixed(1)}% × {(auditImage.BoundingBox.Height * 100).toFixed(1)}%
+                    </p>
+                    
+                    {auditImage.Bytes && (
+                      <img 
+                        src={`data:image/jpeg;base64,${auditImage.Bytes}`}
+                        alt={`Audit face ${index + 1}`}
+                        style={{ 
+                          width: '100%', 
+                          maxHeight: '150px', 
+                          objectFit: 'cover',
+                          borderRadius: '4px'
+                        }}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Challenge Information */}
+          {livenessResults.challenge && (
+            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '5px' }}>
+              <h4>🎯 Challenge Information</h4>
+              <p><strong>Type:</strong> {livenessResults.challenge.Type}</p>
+              <p><strong>Version:</strong> {livenessResults.challenge.Version}</p>
+            </div>
+          )}
+
+          <div style={{ textAlign: 'center', marginTop: '30px' }}>
+            <button 
+              onClick={() => {
+                setLivenessResults(null);
+                retryLiveness();
+              }}
+              style={{ 
+                padding: '12px 24px', 
+                backgroundColor: '#007bff', 
+                color: 'white', 
+                border: 'none', 
+                borderRadius: '5px',
+                cursor: 'pointer',
+                fontSize: '16px'
+              }}
+            >
+              Start New Liveness Check
+            </button>
+          </div>
+        </div>
       ) : (
         <FaceLivenessDetector
           sessionId={createLivenessApiData?.sessionId || ''}
-          region="us-east-1"
+          region="ap-south-1"
           onAnalysisComplete={handleAnalysisComplete}
           onError={handleError}
         />
