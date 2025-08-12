@@ -8,6 +8,7 @@ import {
   extractFaceRegion,
   createFaceDetectionCanvas
 } from '../utils/faceDetectionUtils';
+import { FaceIdentification } from './FaceIdentification';
 
 // Interface for face detection data
 interface BoundingBox {
@@ -52,6 +53,8 @@ export function LivenessQuickStartReact() {
   } | null>(null);
   const [livenessResults, setLivenessResults] = React.useState<LivenessResults | null>(null);
   const [faceAnalysis, setFaceAnalysis] = React.useState<any>(null);
+  const [identificationReport, setIdentificationReport] = React.useState<any>(null);
+  const [showIdentification, setShowIdentification] = React.useState(false);
 
   const fetchCreateLiveness = async () => {
     /*
@@ -296,8 +299,15 @@ export function LivenessQuickStartReact() {
     setError(null);
     setLivenessResults(null);
     setFaceAnalysis(null);
+    setIdentificationReport(null);
+    setShowIdentification(false);
     setLoading(true);
     fetchCreateLiveness();
+  };
+
+  const handleIdentificationComplete = (report: any) => {
+    setIdentificationReport(report);
+    console.log('🎯 Face Identification Complete:', report);
   };
 
   return (
@@ -472,10 +482,55 @@ export function LivenessQuickStartReact() {
             </div>
           )}
 
+          {/* Face Identification Section */}
+          {livenessResults.isLive && (
+            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#e8f5e8', borderRadius: '5px', border: '1px solid #28a745' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <h4>🆔 Face Identification</h4>
+                <button
+                  onClick={() => setShowIdentification(!showIdentification)}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: showIdentification ? '#6c757d' : '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '14px'
+                  }}
+                >
+                  {showIdentification ? 'Hide Identification' : 'Identify Person'}
+                </button>
+              </div>
+              
+              {showIdentification ? (
+                <FaceIdentification 
+                  livenessResult={livenessResults}
+                  onIdentificationComplete={handleIdentificationComplete}
+                />
+              ) : (
+                <div>
+                  <p style={{ margin: '0', color: '#155724' }}>
+                    Liveness verification successful! Click "Identify Person" to compare with your reference database.
+                  </p>
+                  {identificationReport && (
+                    <div style={{ marginTop: '10px', padding: '10px', backgroundColor: '#d4edda', borderRadius: '4px' }}>
+                      <p style={{ margin: '0', fontWeight: 'bold' }}>
+                        Latest Identification: {identificationReport.recommendation}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ textAlign: 'center', marginTop: '30px' }}>
             <button 
               onClick={() => {
                 setLivenessResults(null);
+                setShowIdentification(false);
+                setIdentificationReport(null);
                 retryLiveness();
               }}
               style={{ 

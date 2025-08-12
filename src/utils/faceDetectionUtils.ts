@@ -1,5 +1,6 @@
 /**
  * Utility functions for processing face detection data from AWS Rekognition Face Liveness
+ * Including face comparison capabilities
  */
 
 export interface BoundingBox {
@@ -17,6 +18,41 @@ export interface FaceImage {
     Name: string;
     Version: string;
   };
+}
+
+export interface FaceMatch {
+  Face: {
+    BoundingBox: BoundingBox;
+    Confidence: number;
+    Pose?: {
+      Yaw: number;
+      Roll: number;
+      Pitch: number;
+    };
+    Quality?: {
+      Sharpness: number;
+      Brightness: number;
+    };
+    Landmarks?: Array<{
+      X: number;
+      Y: number;
+      Type: string;
+    }>;
+  };
+  Similarity: number;
+}
+
+export interface FaceComparisonResult {
+  success: boolean;
+  matches: FaceMatch[];
+  unmatchedFaces: any[];
+  sourceImageFace: {
+    BoundingBox: BoundingBox;
+    Confidence: number;
+  };
+  error?: string;
+  personId?: string;
+  personName?: string;
 }
 
 /**
@@ -316,4 +352,216 @@ export function analyzeFaceDetectionResults(
   }
   
   return analysis;
+}
+
+/**
+ * Compare a liveness detection face with stored reference images
+ * @param livenessImageBase64 - Base64 encoded image from liveness detection
+ * @param referenceImages - Array of reference images to compare against
+ * @param similarityThreshold - Minimum similarity threshold (default: 80)
+ * @returns Promise<FaceComparisonResult[]> - Array of comparison results
+ */
+export async function compareLivenessFaceWithReferences(
+  livenessImageBase64: string,
+  referenceImages: Array<{
+    id: string;
+    name: string;
+    imageBase64: string;
+  }>,
+  similarityThreshold: number = 80
+): Promise<FaceComparisonResult[]> {
+  const results: FaceComparisonResult[] = [];
+
+  for (const refImage of referenceImages) {
+    try {
+      const comparisonResult = await compareFacesAPI(
+        livenessImageBase64,
+        refImage.imageBase64,
+        similarityThreshold
+      );
+
+      results.push({
+        ...comparisonResult,
+        personId: refImage.id,
+        personName: refImage.name,
+      });
+    } catch (error) {
+      results.push({
+        success: false,
+        matches: [],
+        unmatchedFaces: [],
+        sourceImageFace: { BoundingBox: { Height: 0, Left: 0, Top: 0, Width: 0 }, Confidence: 0 },
+        error: `Failed to compare with ${refImage.name}: ${error}`,
+        personId: refImage.id,
+        personName: refImage.name,
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Call the backend API to compare two faces using AWS Rekognition
+ * @param sourceImageBase64 - Source image (from liveness detection)
+ * @param targetImageBase64 - Target image (reference image)
+ * @param similarityThreshold - Minimum similarity threshold
+ * @returns Promise<FaceComparisonResult>
+ */
+export async function compareFacesAPI(
+  sourceImageBase64: string,
+  targetImageBase64: string,
+  similarityThreshold: number = 80
+): Promise<FaceComparisonResult> {
+  try {
+    const response = await fetch('http://localhost:5000/api/compare-faces', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        sourceImage: sourceImageBase64,
+        targetImage: targetImageBase64,
+        similarityThreshold: similarityThreshold,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    throw new Error(`Face comparison failed: ${error}`);
+  }
+}
+
+/**
+ * Find the best matching person from comparison results
+ * @param comparisonResults - Array of face comparison results
+ * @param minimumSimilarity - Minimum similarity score to consider (default: 80)
+ * @returns Best match or null if no good match found
+ */
+export function findBestMatch(
+  comparisonResults: FaceComparisonResult[],
+  minimumSimilarity: number = 80
+): FaceComparisonResult | null {
+  let bestMatch: FaceComparisonResult | null = null;
+  let highestSimilarity = 0;
+
+  for (const result of comparisonResults) {
+    if (result.success && result.matches.length > 0) {
+      const topMatch = result.matches[0]; // AWS returns matches sorted by similarity
+      if (topMatch.Similarity >= minimumSimilarity && topMatch.Similarity > highestSimilarity) {
+        highestSimilarity = topMatch.Similarity;
+        bestMatch = result;
+      }
+    }
+  }
+
+  return bestMatch;
+}
+
+/**
+ * Convert image file to base64 string
+ * @param file - Image file
+ * @returns Promise<string> - Base64 encoded string
+ */
+export function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        // Remove data URL prefix (data:image/jpeg;base64,)
+        const base64 = reader.result.split(',')[1];
+        resolve(base64);
+      } else {
+        reject(new Error('Failed to convert file to base64'));
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Load reference images from a directory structure
+ * Expected structure: /references/{personId}/{personName}/image.jpg
+ * @param referenceImageFiles - Array of file objects with metadata
+ * @returns Promise<Array> - Array of reference image objects
+ */
+export async function loadReferenceImages(
+  referenceImageFiles: Array<{
+    file: File;
+    personId: string;
+    personName: string;
+  }>
+): Promise<Array<{
+  id: string;
+  name: string;
+  imageBase64: string;
+}>> {
+  const referenceImages = [];
+
+  for (const ref of referenceImageFiles) {
+    try {
+      const base64 = await fileToBase64(ref.file);
+      referenceImages.push({
+        id: ref.personId,
+        name: ref.personName,
+        imageBase64: base64,
+      });
+    } catch (error) {
+      console.error(`Failed to load reference image for ${ref.personName}:`, error);
+    }
+  }
+
+  return referenceImages;
+}
+
+/**
+ * Create a comprehensive face identification report
+ * @param livenessResult - Result from liveness detection
+ * @param comparisonResults - Results from face comparison
+ * @returns Comprehensive identification report
+ */
+export function createIdentificationReport(
+  livenessResult: any,
+  comparisonResults: FaceComparisonResult[]
+) {
+  const bestMatch = findBestMatch(comparisonResults);
+  
+  const report = {
+    timestamp: new Date().toISOString(),
+    livenessCheck: {
+      passed: livenessResult.isLive,
+      confidence: livenessResult.confidence,
+      sessionId: livenessResult.sessionId,
+      status: livenessResult.status,
+    },
+    faceComparison: {
+      totalComparisons: comparisonResults.length,
+      successfulComparisons: comparisonResults.filter(r => r.success).length,
+      bestMatch: bestMatch ? {
+        personId: bestMatch.personId,
+        personName: bestMatch.personName,
+        similarity: bestMatch.matches[0]?.Similarity || 0,
+        confidence: bestMatch.matches[0]?.Face.Confidence || 0,
+      } : null,
+      allResults: comparisonResults.map(result => ({
+        personId: result.personId,
+        personName: result.personName,
+        success: result.success,
+        similarity: result.matches[0]?.Similarity || 0,
+        error: result.error,
+      })),
+    },
+    recommendation: bestMatch ? 
+      `Identified as ${bestMatch.personName} with ${bestMatch.matches[0]?.Similarity.toFixed(2)}% similarity` :
+      'No matching person found in reference database',
+    isIdentified: !!bestMatch,
+  };
+
+  return report;
 }
