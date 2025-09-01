@@ -2,7 +2,6 @@ import React from 'react';
 import { FaceLivenessDetector } from '@aws-amplify/ui-react-liveness';
 import { Loader, ThemeProvider } from '@aws-amplify/ui-react';
 import { 
-  analyzeFaceDetectionResults, 
   getFaceQualityScore, 
   base64ToDataUrl,
   extractFaceRegion,
@@ -52,7 +51,6 @@ export function LivenessQuickStartReact() {
     sessionId: string;
   } | null>(null);
   const [livenessResults, setLivenessResults] = React.useState<LivenessResults | null>(null);
-  const [faceAnalysis, setFaceAnalysis] = React.useState<any>(null);
   const [identificationReport, setIdentificationReport] = React.useState<any>(null);
   const [showIdentification, setShowIdentification] = React.useState(false);
 
@@ -61,10 +59,11 @@ export function LivenessQuickStartReact() {
      * Call the real backend API to create a Face Liveness session
      */
     try {
-      const response = await fetch('http://localhost:5000/api/create-liveness-session', {
+      const response = await fetch('https://5858002b4ab6.ngrok-free.app/api/create-liveness-session', { //5000
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
       });
 
@@ -99,20 +98,18 @@ export function LivenessQuickStartReact() {
     if (createLivenessApiData?.sessionId) {
       try {
         const response = await fetch(
-          `http://localhost:5000/api/get-liveness-results?sessionId=${createLivenessApiData.sessionId}`
+          `https://5858002b4ab6.ngrok-free.app/api/get-liveness-results?sessionId=${createLivenessApiData.sessionId}`, //5000
+          {
+            headers: {
+              'ngrok-skip-browser-warning': 'true',
+            },
+          }
         );
         const data: LivenessResults = await response.json();
 
         if (data.success) {
           // Store the complete results for face detection processing
           setLivenessResults(data);
-
-          // Analyze face detection results
-          const analysis = analyzeFaceDetectionResults(
-            data.referenceImage || null, 
-            data.auditImages || []
-          );
-          setFaceAnalysis(analysis);
 
           /*
            * Handle the liveness results based on your business logic
@@ -171,7 +168,6 @@ export function LivenessQuickStartReact() {
 
           // Log analysis results
           console.log('=== FACE DETECTION ANALYSIS ===');
-          console.log('Analysis:', analysis);
           
           if (data.isLive) {
             console.log('✅ User is live - Authentication successful');
@@ -298,7 +294,6 @@ export function LivenessQuickStartReact() {
     retryCount.current = 0;
     setError(null);
     setLivenessResults(null);
-    setFaceAnalysis(null);
     setIdentificationReport(null);
     setShowIdentification(false);
     setLoading(true);
@@ -333,81 +328,10 @@ export function LivenessQuickStartReact() {
             <p><strong>Session ID:</strong> {livenessResults.sessionId}</p>
           </div>
 
-          {/* Face Detection Analysis */}
-          {faceAnalysis && (
-            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#e8f4f8', borderRadius: '5px', border: '1px solid #17a2b8' }}>
-              <h4>🧠 Face Detection Analysis</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '15px' }}>
-                <div>
-                  <strong>Quality Score:</strong> {faceAnalysis.averageQualityScore}/100
-                  <div style={{ 
-                    width: '100%', 
-                    height: '8px', 
-                    backgroundColor: '#ddd', 
-                    borderRadius: '4px', 
-                    marginTop: '5px' 
-                  }}>
-                    <div style={{ 
-                      width: `${faceAnalysis.averageQualityScore}%`, 
-                      height: '100%', 
-                      backgroundColor: faceAnalysis.averageQualityScore > 70 ? '#28a745' : faceAnalysis.averageQualityScore > 50 ? '#ffc107' : '#dc3545',
-                      borderRadius: '4px' 
-                    }}></div>
-                  </div>
-                </div>
-                <div>
-                  <strong>Consistency:</strong> {(faceAnalysis.consistencyScore * 100).toFixed(1)}%
-                  <div style={{ 
-                    width: '100%', 
-                    height: '8px', 
-                    backgroundColor: '#ddd', 
-                    borderRadius: '4px', 
-                    marginTop: '5px' 
-                  }}>
-                    <div style={{ 
-                      width: `${faceAnalysis.consistencyScore * 100}%`, 
-                      height: '100%', 
-                      backgroundColor: faceAnalysis.consistencyScore > 0.7 ? '#28a745' : faceAnalysis.consistencyScore > 0.5 ? '#ffc107' : '#dc3545',
-                      borderRadius: '4px' 
-                    }}></div>
-                  </div>
-                </div>
-                <div>
-                  <strong>Reference Image:</strong> {faceAnalysis.hasReferenceImage ? '✅ Available' : '❌ Missing'}
-                </div>
-                <div>
-                  <strong>Audit Images:</strong> {faceAnalysis.auditImageCount} images
-                </div>
-              </div>
-              
-              {/* Recommendations */}
-              <div>
-                <strong>Recommendations:</strong>
-                <ul style={{ marginTop: '5px', marginBottom: '0', paddingLeft: '20px' }}>
-                  {faceAnalysis.recommendations.map((rec: string, index: number) => (
-                    <li key={index} style={{ 
-                      color: rec.includes('good') ? '#28a745' : rec.includes('improve') || rec.includes('should') ? '#ffc107' : '#6c757d',
-                      marginBottom: '2px'
-                    }}>
-                      {rec}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
-
           {/* Reference Image Section */}
           {livenessResults.referenceImage && (
             <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '5px' }}>
-              <h4>📸 Reference Image (Face Detection)</h4>
-              <p><strong>Face Bounding Box:</strong></p>
-              <ul style={{ textAlign: 'left', marginLeft: '20px' }}>
-                <li>Left: {(livenessResults.referenceImage.BoundingBox.Left * 100).toFixed(2)}%</li>
-                <li>Top: {(livenessResults.referenceImage.BoundingBox.Top * 100).toFixed(2)}%</li>
-                <li>Width: {(livenessResults.referenceImage.BoundingBox.Width * 100).toFixed(2)}%</li>
-                <li>Height: {(livenessResults.referenceImage.BoundingBox.Height * 100).toFixed(2)}%</li>
-              </ul>
+              <h4>📸 Reference Image</h4>
               
               {livenessResults.referenceImage.Bytes && (
                 <div style={{ marginTop: '10px' }}>
@@ -450,10 +374,6 @@ export function LivenessQuickStartReact() {
                 {livenessResults.auditImages.map((auditImage, index) => (
                   <div key={index} style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '10px' }}>
                     <h5>Audit Image {index + 1}</h5>
-                    <p style={{ fontSize: '12px' }}>
-                      Face Box: {(auditImage.BoundingBox.Left * 100).toFixed(1)}%, {(auditImage.BoundingBox.Top * 100).toFixed(1)}%, 
-                      {(auditImage.BoundingBox.Width * 100).toFixed(1)}% × {(auditImage.BoundingBox.Height * 100).toFixed(1)}%
-                    </p>
                     
                     {auditImage.Bytes && (
                       <img 

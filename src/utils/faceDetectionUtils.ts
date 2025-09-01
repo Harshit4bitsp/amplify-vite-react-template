@@ -414,7 +414,7 @@ export async function compareFacesAPI(
   similarityThreshold: number = 80
 ): Promise<FaceComparisonResult> {
   try {
-    const response = await fetch('http://localhost:5000/api/compare-faces', {
+    const response = await fetch('https://5858002b4ab6.ngrok-free.app/api/compare-faces', { //5000
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

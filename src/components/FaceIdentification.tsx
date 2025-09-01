@@ -197,94 +197,61 @@ export function FaceIdentification({ livenessResult, onIdentificationComplete }:
 
       {/* Comparison Results */}
       {comparisonResults.length > 0 && (
-        <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '5px' }}>
-          <h4>📊 Comparison Results</h4>
-          
-          {/* Best Match Summary */}
+        <div style={{ marginBottom: '20px', padding: '20px', textAlign: 'center', borderRadius: '10px' }}>
           {bestMatch ? (
             <div style={{ 
-              padding: '15px', 
+              padding: '30px', 
               backgroundColor: '#d4edda', 
-              borderRadius: '5px', 
-              marginBottom: '15px',
-              border: '1px solid #c3e6cb'
+              borderRadius: '10px', 
+              border: '2px solid #28a745'
             }}>
-              <h5 style={{ color: '#155724', margin: '0 0 10px 0' }}>✅ Person Identified</h5>
-              <p style={{ margin: '5px 0', fontSize: '16px', fontWeight: 'bold' }}>
-                {bestMatch.personName} (ID: {bestMatch.personId})
-              </p>
-              <p style={{ margin: '5px 0' }}>
-                Similarity: <strong>{bestMatch.matches[0]?.Similarity.toFixed(2)}%</strong>
-              </p>
-              <p style={{ margin: '5px 0' }}>
-                Face Confidence: <strong>{bestMatch.matches[0]?.Face.Confidence.toFixed(2)}%</strong>
-              </p>
+              <div style={{ fontSize: '48px', marginBottom: '15px' }}>✅</div>
+              <h3 style={{ color: '#155724', margin: '0 0 15px 0' }}>VERIFICATION SUCCESSFUL</h3>
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '20px', marginTop: '20px' }}>
+                <div>
+                  <h4 style={{ margin: '0 0 10px 0', color: '#155724' }}>Matched Person:</h4>
+                  <p style={{ fontSize: '18px', fontWeight: 'bold', margin: '0', color: '#155724' }}>
+                    {bestMatch.personName}
+                  </p>
+                  <p style={{ fontSize: '14px', margin: '5px 0 0 0', color: '#155724' }}>
+                    Confidence: {bestMatch.matches[0]?.Similarity.toFixed(1)}%
+                  </p>
+                </div>
+                {referenceImages.find(img => img.id === bestMatch.personId) && (
+                  <div>
+                    <p style={{ fontSize: '14px', margin: '0 0 10px 0', color: '#155724' }}>Reference Image:</p>
+                    <img 
+                      src={referenceImages.find(img => img.id === bestMatch.personId)?.preview} 
+                      alt={bestMatch.personName}
+                      style={{ 
+                        width: '100px', 
+                        height: '100px', 
+                        objectFit: 'cover', 
+                        borderRadius: '8px',
+                        border: '2px solid #28a745'
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{ 
-              padding: '15px', 
+              padding: '30px', 
               backgroundColor: '#f8d7da', 
-              borderRadius: '5px', 
-              marginBottom: '15px',
-              border: '1px solid #f5c6cb'
+              borderRadius: '10px', 
+              border: '2px solid #dc3545'
             }}>
-              <h5 style={{ color: '#721c24', margin: '0 0 10px 0' }}>❌ No Match Found</h5>
-              <p style={{ margin: '0', color: '#721c24' }}>
-                No person found matching the similarity threshold of {similarityThreshold}%
+              <div style={{ fontSize: '48px', marginBottom: '15px' }}>❌</div>
+              <h3 style={{ color: '#721c24', margin: '0 0 15px 0' }}>VERIFICATION FAILED</h3>
+              <p style={{ margin: '0', color: '#721c24', fontSize: '16px' }}>
+                No matching person found in the reference images
+              </p>
+              <p style={{ margin: '10px 0 0 0', color: '#721c24', fontSize: '14px' }}>
+                Required similarity: {similarityThreshold}%
               </p>
             </div>
           )}
-
-          {/* Detailed Results */}
-          <div>
-            <h5>Detailed Comparison Results:</h5>
-            <div style={{ display: 'grid', gap: '10px' }}>
-              {comparisonResults.map((result, index) => (
-                <div 
-                  key={index} 
-                  style={{ 
-                    padding: '10px', 
-                    border: '1px solid #ddd', 
-                    borderRadius: '5px',
-                    backgroundColor: result.success ? 
-                      (result.matches.length > 0 ? '#d4edda' : '#fff3cd') : 
-                      '#f8d7da'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <strong>{result.personName}</strong> (ID: {result.personId})
-                    </div>
-                    <div>
-                      {result.success ? (
-                        result.matches.length > 0 ? (
-                          <span style={{ color: '#155724', fontWeight: 'bold' }}>
-                            {result.matches[0].Similarity.toFixed(2)}% Match
-                          </span>
-                        ) : (
-                          <span style={{ color: '#856404' }}>No Match</span>
-                        )
-                      ) : (
-                        <span style={{ color: '#721c24' }}>Error</span>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {result.error && (
-                    <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#721c24' }}>
-                      Error: {result.error}
-                    </p>
-                  )}
-                  
-                  {result.matches.length > 0 && (
-                    <div style={{ marginTop: '5px', fontSize: '12px', color: '#666' }}>
-                      Face Confidence: {result.matches[0].Face.Confidence.toFixed(2)}%
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 
