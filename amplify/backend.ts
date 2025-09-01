@@ -13,7 +13,11 @@ const livenessStack = amplifyBackend.createStack("liveness-stack");
 const livenessPolicy = new Policy(livenessStack, "LivenessPolicy", {
   statements: [
     new PolicyStatement({
-      actions: ["rekognition:StartFaceLivenessSession"],
+      actions: [
+        "rekognition:StartFaceLivenessSession",
+        "rekognition:CreateFaceLivenessSession",
+        "rekognition:GetFaceLivenessSessionResults"
+      ],
       resources: [`arn:aws:rekognition:${livenessStack.region}:${livenessStack.account}:*`],
     }),
   ],

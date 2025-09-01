@@ -1,6 +1,6 @@
 import React from 'react';
 import { FaceLivenessDetector } from '@aws-amplify/ui-react-liveness';
-import { Loader, ThemeProvider } from '@aws-amplify/ui-react';
+import { Loader, ThemeProvider, Authenticator } from '@aws-amplify/ui-react';
 import { 
   getFaceQualityScore, 
   base64ToDataUrl,
@@ -54,12 +54,25 @@ export function LivenessQuickStartReact() {
   const [identificationReport, setIdentificationReport] = React.useState<any>(null);
   const [showIdentification, setShowIdentification] = React.useState(false);
 
+  const checkCameraPermissions = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      console.log('✅ Camera permission granted');
+      stream.getTracks().forEach(track => track.stop()); // Stop the stream
+      return true;
+    } catch (error) {
+      console.error('❌ Camera permission denied:', error);
+      setError('Camera permission is required for face liveness detection. Please allow camera access and try again.');
+      return false;
+    }
+  };
+
   const fetchCreateLiveness = async () => {
     /*
      * Call the real backend API to create a Face Liveness session
      */
     try {
-      const response = await fetch('https://5858002b4ab6.ngrok-free.app/api/create-liveness-session', { //5000
+      const response = await fetch('https://bafbe018b260.ngrok-free.app/api/create-liveness-session', { //5000
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -88,7 +101,16 @@ export function LivenessQuickStartReact() {
   React.useEffect(() => {
     // Reset retry count when component mounts
     retryCount.current = 0;
-    fetchCreateLiveness();
+    
+    // Check camera permissions first
+    const initializeLiveness = async () => {
+      const hasCamera = await checkCameraPermissions();
+      if (hasCamera) {
+        fetchCreateLiveness();
+      }
+    };
+    
+    initializeLiveness();
   }, []);
 
   const handleAnalysisComplete: () => Promise<void> = async () => {
@@ -98,7 +120,7 @@ export function LivenessQuickStartReact() {
     if (createLivenessApiData?.sessionId) {
       try {
         const response = await fetch(
-          `https://5858002b4ab6.ngrok-free.app/api/get-liveness-results?sessionId=${createLivenessApiData.sessionId}`, //5000
+          `https://bafbe018b260.ngrok-free.app/api/get-liveness-results?sessionId=${createLivenessApiData.sessionId}`, //5000
           {
             headers: {
               'ngrok-skip-browser-warning': 'true',
@@ -265,12 +287,26 @@ export function LivenessQuickStartReact() {
 
   const handleError = async (error: any) => {
     console.error('Liveness error:', error);
+    console.error('Error type:', typeof error);
+    console.error('Error details:', JSON.stringify(error, null, 2));
+    
+    // Log more specific error information
+    if (error && error.message) {
+      console.error('Error message:', error.message);
+    }
+    if (error && error.code) {
+      console.error('Error code:', error.code);
+    }
+    if (error && error.name) {
+      console.error('Error name:', error.name);
+    }
 
     // Prevent infinite loop - limit retries
     if (isHandlingError.current || retryCount.current >= MAX_RETRIES) {
       console.error('Max retries reached or already handling error. Stopping retry attempts.');
       setLoading(false);
-      setError('Face liveness detection failed after multiple attempts. Please refresh the page to try again.');
+      const errorMessage = error?.message || error?.code || 'Unknown error';
+      setError(`Face liveness detection failed after multiple attempts. Error: ${errorMessage}. Please refresh the page to try again.`);
       return;
     }
 
@@ -468,12 +504,41 @@ export function LivenessQuickStartReact() {
           </div>
         </div>
       ) : (
-        <FaceLivenessDetector
-          sessionId={createLivenessApiData?.sessionId || ''}
-          region="ap-south-1"
-          onAnalysisComplete={handleAnalysisComplete}
-          onError={handleError}
-        />
+        <Authenticator>
+          {({ signOut, user }) => (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', backgroundColor: '#f8f9fa', marginBottom: '10px', borderRadius: '5px' }}>
+                <div>
+                  <p style={{ margin: '0', fontWeight: 'bold' }}>Welcome, {user?.username}!</p>
+                  <p style={{ margin: '0', fontSize: '12px', color: '#666' }}>You are authenticated and ready for face liveness detection</p>
+                </div>
+                <button onClick={signOut} style={{ padding: '8px 16px', cursor: 'pointer', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px' }}>
+                  Sign out
+                </button>
+              </div>
+              
+              <div style={{ padding: '10px', backgroundColor: '#d1ecf1', marginBottom: '10px', borderRadius: '5px' }}>
+                <p><strong>Debug Info:</strong></p>
+                <p>Session ID: {createLivenessApiData?.sessionId}</p>
+                <p>Region: ap-south-1</p>
+                <p>Authenticated User: {user?.username}</p>
+                <button 
+                  onClick={checkCameraPermissions}
+                  style={{ padding: '5px 10px', marginRight: '10px', cursor: 'pointer' }}
+                >
+                  Test Camera
+                </button>
+              </div>
+              
+              <FaceLivenessDetector
+                sessionId={createLivenessApiData?.sessionId || ''}
+                region="ap-south-1"
+                onAnalysisComplete={handleAnalysisComplete}
+                onError={handleError}
+              />
+            </div>
+          )}
+        </Authenticator>
       )}
     </ThemeProvider>
   );
