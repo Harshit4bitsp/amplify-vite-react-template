@@ -18,7 +18,7 @@ const livenessPolicy = new Policy(livenessStack, "LivenessPolicy", {
         "rekognition:CreateFaceLivenessSession",
         "rekognition:GetFaceLivenessSessionResults"
       ],
-      resources: [`arn:aws:rekognition:${livenessStack.region}:${livenessStack.account}:*`],
+      resources: ["*"], // Face Liveness requires wildcard resources
     }),
   ],
 });

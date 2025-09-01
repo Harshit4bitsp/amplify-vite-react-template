@@ -1,6 +1,7 @@
 import React from 'react';
 import { FaceLivenessDetector } from '@aws-amplify/ui-react-liveness';
 import { Loader, ThemeProvider, Authenticator } from '@aws-amplify/ui-react';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import { 
   getFaceQualityScore, 
   base64ToDataUrl,
@@ -63,6 +64,23 @@ export function LivenessQuickStartReact() {
     } catch (error) {
       console.error('❌ Camera permission denied:', error);
       setError('Camera permission is required for face liveness detection. Please allow camera access and try again.');
+      return false;
+    }
+  };
+
+  const refreshCredentials = async () => {
+    try {
+      console.log('🔄 Refreshing AWS credentials...');
+      // Clear any cached credentials and force a refresh
+      const session = await fetchAuthSession({ forceRefresh: true });
+      console.log('✅ Credentials refreshed:', {
+        identityId: session.identityId,
+        hasTokens: !!session.tokens,
+        hasCredentials: !!session.credentials
+      });
+      return true;
+    } catch (error) {
+      console.error('❌ Failed to refresh credentials:', error);
       return false;
     }
   };
